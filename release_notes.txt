@@ -1,0 +1,6 @@
+Version 1.0
+-----------------
+
+This version contains the basic source code integrating our earlier proposed supertree algorithm COSPEDTree, 
+with the proposed branch length assignment. Input phylogenetic trees and their associated branch length values 
+are used to assign the branch length information of the derived supertree.
