@@ -18,9 +18,9 @@ def ComputeScore(clust1, clust2, Output_Text_File):
       key1 = (t1, t2)
       key2 = (t2, t1)
       if key1 in TaxaPair_Reln_Dict:
-	score_val = score_val + TaxaPair_Reln_Dict[key1]._GetConnPrVal(DIRECTED_OUT_EDGE)
+	score_val = score_val + TaxaPair_Reln_Dict[key1]._GetConnPrVal(RELATION_R1)
       elif key2 in TaxaPair_Reln_Dict:
-	score_val = score_val + TaxaPair_Reln_Dict[key2]._GetConnPrVal(DIRECTED_IN_EDGE)
+	score_val = score_val + TaxaPair_Reln_Dict[key2]._GetConnPrVal(RELATION_R2)
       else:
 	if (DEBUG_LEVEL > 2):
 	  fp.write('\n score compute -- key pair ' + str(t1) + ',' + str(t2) + ' does not exist ')
@@ -106,21 +106,40 @@ def SolveMultipleParentC2Problem(Output_Text_File):
 	Cluster_Info_Dict[cx]._PrintClusterInfo(cx, Output_Text_File)
         
 ##-----------------------------------------------------    
-# following code removes extra paranthesis (thus producing insignificant edges) 
-# from the tree expression contained in the string
+""" 
+following code removes extra paranthesis (thus producing insignificant edges) 
+from the supertree expression contained in the string Final_Supertree_Str
+this is important since the original string (and thus the tree) may contain 
+internal nodes of outdegree 1, thus can be removed 
+employing the update_splits routine in the dendropy often causes trouble
+it is better to manually track the number of taxa and the occurrences of 
+enclosing brackets within the string expression
+"""
 def Remove_Extra_Paranthesis(Final_Supertree_Str):
+  # first we convert the input string expression in a list format
+  # so as to traverse it in position specific manner
   L = list(Final_Supertree_Str)
-  SL = []	# stack list
+  # this is a stack (list structure) which contains the positions of the first brackets encountered
+  # within the input string expression
+  # this is required to keep track of the correspondence between the opening and the closing brackets
+  SL = []
+  # this is a dictionary storing the positions of respective opening and closing brackets
+  # the position of opening bracket is the dictionary key
+  # the value for one key of the dictionary contains the position of the closing bracket
   first_bracket_dict = dict()
-  
+
+  # scan through the tree expression string
   for i in range(len(L)):
+    # append the position of an opening bracket in the stack
     if (L[i] == '('):
       SL.append(i)
+    # for a closing bracket, retrieve the corresponding opening bracket position
+    # and enter those positions in the dictionary
     elif (L[i] == ')'):
       first_bracket_idx = SL.pop()
       first_bracket_dict.setdefault(first_bracket_idx, i)
  
-  if (DEBUG_LEVEL > 2):
+  if 0:	#(DEBUG_LEVEL > 2):
     print 'L : ', L
     print 'first_bracket_dict: ', first_bracket_dict
   
@@ -133,8 +152,25 @@ def Remove_Extra_Paranthesis(Final_Supertree_Str):
 	L.insert(i, '$')
 	L.pop(sb1)
 	L.insert(sb1, '$')
+	
+    # add - sourya
+    # if enclosing brackets contain only one species 
+    # then those brackets need to be removed
+    if (L[i] == '('):
+      sb = first_bracket_dict[i]
+      f = 0
+      for j in range(i,sb):
+	if (L[j] == ','):
+	  f = 1
+	  break
+      if (f == 0):
+	L.pop(i)
+	L.insert(i, '$')
+	L.pop(sb)
+	L.insert(sb, '$')
+    # end add - sourya
   
-  if (DEBUG_LEVEL > 2):
+  if 0:	#(DEBUG_LEVEL > 2):
     print 'L : ', L
   
   while (1):
@@ -143,7 +179,7 @@ def Remove_Extra_Paranthesis(Final_Supertree_Str):
     else:
       break
   
-  if (DEBUG_LEVEL > 2):
+  if 0:	#(DEBUG_LEVEL > 2):
     print 'L : ', L
 
   # construct the string containing final supertree
@@ -190,7 +226,10 @@ def PrintNewick(root_clust_node_idx):
     for l in Cluster_Info_Dict[root_clust_node_idx]._GetOutEdgeList():
       if (Cluster_Info_Dict[l]._GetExploredStatus() == 0):
 	outnodes.append(l)
+    # comment - sourya
     if (len(outnodes) == 0):
+    # add - sourya
+    #if (len(outnodes) <= 1):
       spec_list = Cluster_Info_Dict[root_clust_node_idx]._GetSpeciesList()
       if (len(spec_list) > 1):
 	Tree_Str_List = Tree_Str_List + '('
@@ -215,7 +254,7 @@ def PrintNewick(root_clust_node_idx):
 	      j = j + 1	      
 	    # in this case, we append one comma
 	    if (j < len(outnodes)):
-	      Tree_Str_List = Tree_Str_List + ','      
+	      Tree_Str_List = Tree_Str_List + ','
       
       Tree_Str_List = Tree_Str_List + ')'
       Tree_Str_List = Tree_Str_List + ')'
@@ -265,47 +304,64 @@ def Append_Cluster_Taxa_Label(target_clust_idx, target_taxa_label):
 # parameters: 1) node1 and node2 are two nodes
 # node1_dist_from_mrca_node is the distance of node 1 from MRCA
 # node2_dist_from_mrca_node is the distance of node 2 from MRCA
-def DefineLeafPairReln(xl_val, node1, node2, edge_type, node1_dist_from_mrca_node, node2_dist_from_mrca_node, tree_idx):
+def DefineLeafPairReln(xl_val, node1, node2, edge_type, node1_dist_from_mrca_node, node2_dist_from_mrca_node, \
+  tree_idx, curr_tree_taxa, taxa_under_curr_node):
+  
   key1 = (node1.taxon.label, node2.taxon.label)
   key2 = (node2.taxon.label, node1.taxon.label)
   if key1 in TaxaPair_Reln_Dict:
+    if (len(taxa_under_curr_node) > 0):
+      intersect_ratio = (len(set(TaxaPair_Reln_Dict[key1]._GetUnderlyingTaxonList()) & set(curr_tree_taxa)) * 1.0) / len(set(TaxaPair_Reln_Dict[key1]._GetUnderlyingTaxonList()))
+    else:
+      intersect_ratio = 1
     TaxaPair_Reln_Dict[key1]._AddSupportTreeIndex(tree_idx)
     TaxaPair_Reln_Dict[key1]._AddLineage(xl_val)
-    TaxaPair_Reln_Dict[key1]._Add_Edge_Count_And_Distance(edge_type, node1_dist_from_mrca_node, node2_dist_from_mrca_node)
+    TaxaPair_Reln_Dict[key1]._Add_Edge_Count_And_Distance(edge_type, node1_dist_from_mrca_node, \
+      node2_dist_from_mrca_node, intersect_ratio)
   elif key2 in TaxaPair_Reln_Dict:
+    if (len(taxa_under_curr_node) > 0):
+      intersect_ratio = (len(set(TaxaPair_Reln_Dict[key2]._GetUnderlyingTaxonList()) & set(curr_tree_taxa)) * 1.0)  / len(set(TaxaPair_Reln_Dict[key2]._GetUnderlyingTaxonList()))
+    else:
+      intersect_ratio = 1
     TaxaPair_Reln_Dict[key2]._AddSupportTreeIndex(tree_idx)
     TaxaPair_Reln_Dict[key2]._AddLineage(xl_val)
-    if (edge_type == BI_DIRECTED_EDGE) or (edge_type == NO_EDGE):
-      TaxaPair_Reln_Dict[key2]._Add_Edge_Count_And_Distance(edge_type, node1_dist_from_mrca_node, node2_dist_from_mrca_node)
-    elif (edge_type == DIRECTED_OUT_EDGE):
-      TaxaPair_Reln_Dict[key2]._Add_Edge_Count_And_Distance(DIRECTED_IN_EDGE, node1_dist_from_mrca_node, node2_dist_from_mrca_node)
-    else:
-      TaxaPair_Reln_Dict[key2]._Add_Edge_Count_And_Distance(DIRECTED_OUT_EDGE, node1_dist_from_mrca_node, node2_dist_from_mrca_node)
+    TaxaPair_Reln_Dict[key2]._Add_Edge_Count_And_Distance(Complementary_Reln(edge_type), \
+      node2_dist_from_mrca_node, node1_dist_from_mrca_node, intersect_ratio)    
   else:
     TaxaPair_Reln_Dict.setdefault(key1, Reln_TaxaPair())
+    if (len(taxa_under_curr_node) > 0):
+      intersect_ratio = (len(set(TaxaPair_Reln_Dict[key1]._GetUnderlyingTaxonList()) & set(curr_tree_taxa)) * 1.0)  / len(set(TaxaPair_Reln_Dict[key1]._GetUnderlyingTaxonList()))
+    else:
+      intersect_ratio = 1    
     TaxaPair_Reln_Dict[key1]._AddSupportTreeIndex(tree_idx)
     TaxaPair_Reln_Dict[key1]._AddLineage(xl_val)
-    TaxaPair_Reln_Dict[key1]._Add_Edge_Count_And_Distance(edge_type, node1_dist_from_mrca_node, node2_dist_from_mrca_node)
+    TaxaPair_Reln_Dict[key1]._Add_Edge_Count_And_Distance(edge_type, node1_dist_from_mrca_node, \
+      node2_dist_from_mrca_node, intersect_ratio)
       
   return      
       
 #--------------------------------------------------------
 # this function derives coupket relations belonging to one tree
 # that is provided as an input argument to this function
-def DeriveCoupletRelations(Curr_tree, tree_idx):
+def DeriveCoupletRelations(Curr_tree, tree_idx, WEIGHT_TAXA_SUBSET):
   
-  # add - sourya
-  Curr_tree_taxa_count = len(Curr_tree.infer_taxa().labels())
+  curr_tree_taxa = Curr_tree.infer_taxa().labels()
+  no_of_taxa = len(curr_tree_taxa)    
   
   # traverse the internal nodes of the tree in postorder fashion
   for curr_node in Curr_tree.postorder_internal_node_iter():
+    if (WEIGHT_TAXA_SUBSET == True):
+      taxa_under_curr_node = GetTaxaUnderInternalNode(curr_node)
+    else:
+      taxa_under_curr_node = []
+    
     # distance of this node from the root node
     curr_node_dist_from_root = curr_node.distance_from_root()
     # compute the XL value associated with this node
     # comment - sourya
-    #xl_val = (len(curr_node.leaf_nodes()) - 2)    
+    xl_val = (len(curr_node.leaf_nodes()) - 2)    
     # add - sourya
-    xl_val = ((len(curr_node.leaf_nodes()) - 2) * 1.0 ) / Curr_tree_taxa_count
+    #xl_val = ((len(curr_node.leaf_nodes()) - 2) * 1.0 ) / no_of_taxa
     
     # list the leaf and internal children of the current node
     curr_node_child_leaf_nodes = []
@@ -323,7 +379,7 @@ def DeriveCoupletRelations(Curr_tree, tree_idx):
 	for j in range(i+1, len(curr_node_child_leaf_nodes)):
 	  node2_dist_from_mrca_node = curr_node_child_leaf_nodes[j].distance_from_root() - curr_node_dist_from_root
 	  DefineLeafPairReln(xl_val, curr_node_child_leaf_nodes[i], curr_node_child_leaf_nodes[j], \
-	    BI_DIRECTED_EDGE, node1_dist_from_mrca_node, node2_dist_from_mrca_node, tree_idx)
+	    RELATION_R3, node1_dist_from_mrca_node, node2_dist_from_mrca_node, tree_idx, curr_tree_taxa, taxa_under_curr_node)
     
     # one leaf node (direct descendant) and another leaf node (under one internal node)
     # will be related by ancestor / descendant relations
@@ -333,9 +389,10 @@ def DeriveCoupletRelations(Curr_tree, tree_idx):
 	for q in curr_node_child_internal_nodes:
 	  for r in q.leaf_nodes():
 	    node2_dist_from_mrca_node = r.distance_from_root() - curr_node_dist_from_root
-	    DefineLeafPairReln(xl_val, p, r, DIRECTED_OUT_EDGE, node1_dist_from_mrca_node, node2_dist_from_mrca_node, tree_idx)
+	    DefineLeafPairReln(xl_val, p, r, RELATION_R1, node1_dist_from_mrca_node, node2_dist_from_mrca_node, \
+	      tree_idx, curr_tree_taxa, taxa_under_curr_node)
     
-    # finally a pair of leaf nodes which are descendant of internal nodes will be related by NO_EDGE relation
+    # finally a pair of leaf nodes which are descendant of internal nodes will be related by RELATION_R4 relation
     if (len(curr_node_child_internal_nodes) > 1):
       for i in range(len(curr_node_child_internal_nodes) - 1):
 	for j in range(i+1, len(curr_node_child_internal_nodes)):
@@ -343,10 +400,117 @@ def DeriveCoupletRelations(Curr_tree, tree_idx):
 	    node1_dist_from_mrca_node = p.distance_from_root() - curr_node_dist_from_root
 	    for q in curr_node_child_internal_nodes[j].leaf_nodes():
 	      node2_dist_from_mrca_node = q.distance_from_root() - curr_node_dist_from_root
-	      DefineLeafPairReln(xl_val, p, q, NO_EDGE, node1_dist_from_mrca_node, node2_dist_from_mrca_node, tree_idx)
+	      DefineLeafPairReln(xl_val, p, q, RELATION_R4, node1_dist_from_mrca_node, node2_dist_from_mrca_node, \
+		tree_idx, curr_tree_taxa, taxa_under_curr_node)
 
       
+#--------------------------------------------------------
+# this function derives coupket relations belonging to one tree
+# that is provided as an input argument to this function
+def FindCoupletUnderlyingTaxon(Curr_tree):
+  # traverse the internal nodes of the tree in postorder fashion
+  for curr_node in Curr_tree.postorder_internal_node_iter():
+    taxa_under_curr_node = GetTaxaUnderInternalNode(curr_node)
+    
+    curr_node_child_leaf_nodes = []
+    curr_node_child_internal_nodes = []
+    for x in curr_node.child_nodes():
+      if (x.is_leaf() == True):
+	curr_node_child_leaf_nodes.append(x)
+      else:
+	curr_node_child_internal_nodes.append(x)
+    
+    # pair of leaf nodes will be related by sibling relations
+    if (len(curr_node_child_leaf_nodes) > 1):
+      for i in range(len(curr_node_child_leaf_nodes) - 1):
+	for j in range(i+1, len(curr_node_child_leaf_nodes)):
+	  node1 = curr_node_child_leaf_nodes[i]
+	  node2 = curr_node_child_leaf_nodes[j]
+	  key1 = (node1.taxon.label, node2.taxon.label)
+	  key2 = (node2.taxon.label, node1.taxon.label)
+	  if key1 in TaxaPair_Reln_Dict:
+	    TaxaPair_Reln_Dict[key1]._AppendUnderlyingTaxonList(taxa_under_curr_node)
+	  elif key2 in TaxaPair_Reln_Dict:
+	    TaxaPair_Reln_Dict[key2]._AppendUnderlyingTaxonList(taxa_under_curr_node)
+	  else:
+	    TaxaPair_Reln_Dict.setdefault(key1, Reln_TaxaPair())
+	    TaxaPair_Reln_Dict[key1]._AppendUnderlyingTaxonList(taxa_under_curr_node)
+
+    
+    # one leaf node (direct descendant) and another leaf node (under one internal node)
+    # will be related by ancestor / descendant relations
+    if (len(curr_node_child_leaf_nodes) > 0) and (len(curr_node_child_internal_nodes) > 0):
+      for p in curr_node_child_leaf_nodes:
+	for q in curr_node_child_internal_nodes:
+	  for r in q.leaf_nodes():
+	    node1 = p
+	    node2 = r
+	    key1 = (node1.taxon.label, node2.taxon.label)
+	    key2 = (node2.taxon.label, node1.taxon.label)
+	    if key1 in TaxaPair_Reln_Dict:
+	      TaxaPair_Reln_Dict[key1]._AppendUnderlyingTaxonList(taxa_under_curr_node)
+	    elif key2 in TaxaPair_Reln_Dict:
+	      TaxaPair_Reln_Dict[key2]._AppendUnderlyingTaxonList(taxa_under_curr_node)
+	    else:
+	      TaxaPair_Reln_Dict.setdefault(key1, Reln_TaxaPair())
+	      TaxaPair_Reln_Dict[key1]._AppendUnderlyingTaxonList(taxa_under_curr_node)    
+    
+    # finally a pair of leaf nodes which are descendant of internal nodes will be related by RELATION_R4 relation
+    if (len(curr_node_child_internal_nodes) > 1):
+      for i in range(len(curr_node_child_internal_nodes) - 1):
+	for j in range(i+1, len(curr_node_child_internal_nodes)):
+	  for p in curr_node_child_internal_nodes[i].leaf_nodes():
+	    for q in curr_node_child_internal_nodes[j].leaf_nodes():
+	      node1 = p
+	      node2 = q
+	      key1 = (node1.taxon.label, node2.taxon.label)
+	      key2 = (node2.taxon.label, node1.taxon.label)
+	      if key1 in TaxaPair_Reln_Dict:
+		TaxaPair_Reln_Dict[key1]._AppendUnderlyingTaxonList(taxa_under_curr_node)
+	      elif key2 in TaxaPair_Reln_Dict:
+		TaxaPair_Reln_Dict[key2]._AppendUnderlyingTaxonList(taxa_under_curr_node)
+	      else:
+		TaxaPair_Reln_Dict.setdefault(key1, Reln_TaxaPair())
+		TaxaPair_Reln_Dict[key1]._AppendUnderlyingTaxonList(taxa_under_curr_node)
+      
+#-----------------------------------------------------
+# this is the taxa list generated from current internal node
+def GetTaxaUnderInternalNode(curr_node):
+  taxa_list_from_curr_internal_node = []
+  for n in curr_node.leaf_nodes():
+    taxa_list_from_curr_internal_node.append(n.taxon.label)
+  return taxa_list_from_curr_internal_node
+
+#----------------------------------------
+def Complementary_Reln(inp_reln):
+  if (inp_reln == RELATION_R3) or (inp_reln == RELATION_R4):
+    return inp_reln
+  elif (inp_reln == RELATION_R1):
+    return RELATION_R2
+  else:
+    return RELATION_R1
+      
+#--------------------------------------------------------
+""" 
+this function prints the elements of the queue (which stores the couplet scores 
+for individual relations 
+"""
+def PrintQueueInfo(inp_queue, Output_Text_File):
+  fp = open(Output_Text_File, 'a')
+  for elem in inp_queue:
+    fp.write(' ' + str(elem))
+  fp.close()
       
       
-      
-      
+##-----------------------------------------------------
+# this function reads the input tree list file
+# parameters: ROOTED_TREE - whether the treelist to be read as rooted format
+# PRESERVE_UNDERSCORE: whether underscores of the taxa name will be preserved or not
+# INPUT_FILE_FORMAT: data is read from the file according to NEWICK or NEXUS format
+# INPUT_FILENAME: file containing the input treelist
+def Read_Input_Treelist(ROOTED_TREE, PRESERVE_UNDERSCORE, INPUT_FILE_FORMAT, INPUT_FILENAME):
+  Inp_TreeList = dendropy.TreeList.get_from_path(INPUT_FILENAME, schema=INPUT_FILE_FORMAT, \
+						  preserve_underscores=PRESERVE_UNDERSCORE, \
+						  default_as_rooted=ROOTED_TREE)
+  
+  return Inp_TreeList

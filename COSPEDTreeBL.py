@@ -15,9 +15,12 @@ Dept of CSE, IIT Kharagpur
 V1.0 - 07.04.2014 - basic code
 V2.0 - 01.07.2014 - modified the clustering and conflict detection routine
 V3.0 - 23.03.2015 - reduced storage complexity and cleaned the code
+V4.0 - 06.09.2015 - comment, code clean, reduced runtime, improved QP solver. 
+		  - removed QP solvers other than BFGS.
+		  - used QP execution path.
 '''
 
-## Copyright 2014 Sourya Bhattacharyya and Jayanta Mukherjee.
+## Copyright 2014, 2015, Sourya Bhattacharyya and Jayanta Mukherjee.
 ## All rights reserved.
 ##
 ## See "LICENSE.txt" for terms and conditions of usage.
@@ -49,106 +52,103 @@ def parse_options():
 			  action="store", \
 			  dest="INP_FILENAME", \
 			  default="", \
-			  help="name of the input file containing input trees")
+			  help="name of the file containing input phylogenetic trees")
   
   parser.add_option("-p", "--inpform", \
 			  type="int", \
 			  action="store", \
 			  dest="inp_file_format", \
 			  default=1, \
-			  help="1 - input file (containing the input treelist) format is NEWICK (default) \
+			  help="1 - format of the input file (containing the input treelist) is NEWICK (default) \
 			  2 - input file format is NEXUS")
-  
-  parser.add_option("-T", "--topology", \
-			  type="string", \
-			  action="store", \
-			  dest="topology_input_tree_file", \
-			  default="", \
-			  help="user can provide a custom unweighted supertree topology as an input, using this option. \
-			  the custom unweighted supertree is built using some other suprtree method (other than COSPEDTREE) such as RFS. \
-			  The supertree is built using the source tree list provided with the following -I option \
-			  from the input unweighted supertree, only the branch lengths are computed \
-			  the weighted supertree is used for performance comparison \
-			  here, no supertree computation is performed. \
-			  Only the branch length assignment is performed")
-			  
-  parser.add_option("-t", "--topform", \
-			  type="int", \
-			  action="store", \
-			  dest="topology_file_format", \
-			  default=1, \
-			  help="1 - if the tree topology is provided using the -T option, it is provided in NEWICK (default) formatted file \
-			  2 - file format of the topology input file is NEXUS")			  
 
   parser.add_option("-s", "--basicscore", \
 			  action="store_true", \
 			  dest="basic_score", \
 			  default=False, \
-			  help="if TRUE, basic unweighted version of COSPEDTree based couplet scoring is employed. \
-			  no input branch length information is accounted for scoring. \
+			  help="if TRUE, we employ couplet support scores as that of COSPEDTree. \
+			  There, branch length values of input trees are not accounted for couplet scores. \
 			  Default FALSE.")  
     			  
   parser.add_option("-b", "--binary", \
-			  action="store_true", \
+			  action="store_false", \
 			  dest="binary_suptr", \
-			  default=False, \
-			  help="if TRUE, it produces a strictly binary supertree. Otherwise, the tree can be non-binary. Default FALSE.")
+			  default=True, \
+			  help="if TRUE, it produces a strictly binary supertree. Otherwise, the tree can be non-binary. Default TRUE.")
     			  
   parser.add_option("-d", "--dfsref", \
 			  action="store_true", \
 			  dest="dfs_parent_refine", \
 			  default=True, \
-			  help="if TRUE, Multiple parent problem (C2) is tackled - before appying DFS for arbitrary parenting information, \
-			  it selects the most probable parent candidate. Default is TRUE.")  
+			  help="if TRUE, Multiple parent problem (C2) is tackled by deterministic parent selection. \
+			  Otherwise, arbitrary parent assignment is performed. Default is TRUE.")  
     			    
   parser.add_option("-m", "--method", \
 			  type="int", \
 			  action="store", \
 			  dest="method_of_QP", \
 			  default=3, \
-			  help="1 - Employes L-BFGS-B method for nonlinear optimization \
-			  2 - Employes SLSQP method for nonlinear optimization \
-			  3 - C method on GNU library (BFGS) (default)")
+			  help="1 - Employes L-BFGS-B method for least square based branch length assignment \
+			  2 - Employes SLSQP method for least square based branch length assignment \
+			  3 - C method on GNU library (BFGS) for least square based branch length assignment (default)")
   
   parser.add_option("-l", "--loops", \
 			  type="int", \
 			  action="store", \
 			  dest="no_of_loops", \
 			  default=15, \
-			  help="No of iterations (loops) employed during the branch length optimization based on the nonlinear programming\
+			  help="No of iterations (loops) employed during the branch length optimization\
 			  only applicable if the method of nonlinear programming is either 1 or 2 \
 			  generally more iterations yield better optimization \
 			  default number of iterations is 15")
+    
+  parser.add_option("-Q", "--QPExec", \
+			  type="string", \
+			  action="store", \
+			  dest="QP_Exec_Path", \
+			  default="", \
+			  help="Absolute path of the executable for QP solver")
+
+  parser.add_option("-w", "--weighttaxa", \
+			  action="store_false", \
+			  dest="weight_taxa_subset", \
+			  default=True, \
+			  help="this is a boolean flag option \
+				using this option toggles the existing configuration (Default TRUE) \
+				if TRUE, then this option weighs couplet statistics according \
+				to the size of taxa subset underlying MRCA of that couplet")  
     
   opts, args = parser.parse_args()
   return opts, args
   
   
 ##-----------------------------------------------------
-''' main function '''
+# main function
 def main():  
   opts, args = parse_options()
   
-  ROOTED_TREE = False	#opts.default_rooted
+  ROOTED_TREE = True	#opts.default_rooted
   PRESERVE_UNDERSCORE = True	#opts.preserve_underscores
   if (opts.inp_file_format == 1):
     INPUT_FILE_FORMAT = 'newick'
   else:
     INPUT_FILE_FORMAT = 'nexus'
   INPUT_FILENAME = opts.INP_FILENAME
-  NO_OF_QUEUES = 2
+  NO_OF_QUEUES = 1	# sourya - default set
   DFS_PARENT_REFINE = opts.dfs_parent_refine
   NO_OF_LOOPS = opts.no_of_loops
   METHOD_OF_QP = opts.method_of_QP
-  TOPOLOGY_INPUT_TREE_FILENAME = opts.topology_input_tree_file
-  if (opts.topology_file_format == 1):
-    TOPOLOGY_FILE_FORMAT = 'newick'
-  else:
-    TOPOLOGY_FILE_FORMAT = 'nexus'
   EMPLOY_BASIC_SCORING_COSPEDTREE = opts.basic_score
   BINARY_SUPERTREE_OPTION = opts.binary_suptr
+  WEIGHT_TAXA_SUBSET = opts.weight_taxa_subset
   
-  global Output_Text_File
+  """
+  abspath function converts input possibly relative path into an absoloute path
+  """
+  if (opts.QP_Exec_Path == ""):
+    print '******** THERE IS NO PATH FOR QP SOLVER (GNU_BFGS2) IS PROVIDED - RETURN **********'
+    return
+  QP_EXEC_PATH = os.path.abspath(opts.QP_Exec_Path)  
   
   if (INPUT_FILENAME == ""):
     print '******** THERE IS NO INPUT FILE SPECIFIED - RETURN **********'
@@ -166,19 +166,18 @@ def main():
   if (DEBUG_LEVEL > 1):
     print 'dir_of_inp_file: ', dir_of_inp_file
   
-  if (TOPOLOGY_INPUT_TREE_FILENAME == ""):
-    dir_of_curr_exec = dir_of_inp_file + 'COSPEDBL_Latest'
-    if (DFS_PARENT_REFINE == True):
-      dir_of_curr_exec = dir_of_curr_exec + '_MPP'    
-    if (BINARY_SUPERTREE_OPTION == True):
-      dir_of_curr_exec = dir_of_curr_exec + '_Binary'    
-    if (EMPLOY_BASIC_SCORING_COSPEDTREE == True):
-      dir_of_curr_exec = dir_of_curr_exec + '_Basic_Score'
-    dir_of_curr_exec = dir_of_curr_exec + '_QP_Method_' + str(METHOD_OF_QP)
-    if (METHOD_OF_QP != 3):
-      dir_of_curr_exec = dir_of_curr_exec + '_Loop_' + str(NO_OF_LOOPS)
-  else:
-    dir_of_curr_exec = dir_of_inp_file + 'RFS_QP'   
+  dir_of_curr_exec = dir_of_inp_file + 'COSPEDBL'
+  if (DFS_PARENT_REFINE == True):
+    dir_of_curr_exec = dir_of_curr_exec + '_D'    
+  if (BINARY_SUPERTREE_OPTION == True):
+    dir_of_curr_exec = dir_of_curr_exec + '_B'    
+  if (EMPLOY_BASIC_SCORING_COSPEDTREE == True):
+    dir_of_curr_exec = dir_of_curr_exec + '_BS'
+  if (WEIGHT_TAXA_SUBSET == True):
+    dir_of_curr_exec = dir_of_curr_exec + '_W'
+  dir_of_curr_exec = dir_of_curr_exec + '_QP_' + str(METHOD_OF_QP)
+  if (METHOD_OF_QP != 3):
+    dir_of_curr_exec = dir_of_curr_exec + '_Loop_' + str(NO_OF_LOOPS)
 
   # create the directory
   if (os.path.isdir(dir_of_curr_exec) == False):
@@ -186,45 +185,59 @@ def main():
     os.system(mkdr_cmd)         
     
   # append the current output directory in the text file
-  Output_Text_File = dir_of_curr_exec + '/' + Output_Text_File
+  Output_Text_File = dir_of_curr_exec + '/' + 'Complete_Output_Description.txt'
     
   fp = open(Output_Text_File, 'w')    
-    
-  # this variable notes the count of input source trees  
-  tree_count = 0
-    
+        
   # note the program beginning time 
   start_timestamp = time.time()
     
   #-------------------------------------  
-  """ read the source trees collection and store it in a tree collection structure
-  individual elements of this collection is thus a source tree """
+  """ 
+  read the input treelist file
+  """
   Input_Treelist = Read_Input_Treelist(ROOTED_TREE, PRESERVE_UNDERSCORE, INPUT_FILE_FORMAT, INPUT_FILENAME)  
   
   #-------------------------------------    
-  # from the input source trees, note the number of taxa (total)
-  # and also define the class instances corresponding to single taxa
+  """
+  from the input trees, note the number of taxa (total)
+  and insert in the complete taxa list
+  """
   for tr_idx in range(len(Input_Treelist)):
-    tree_count = tree_count + 1
     taxa_labels_curr_tree = Input_Treelist[tr_idx].infer_taxa().labels()
     if (DEBUG_LEVEL > 1):
-      fp.write('\n Tree no : ' + str(tree_count) +  'no of leaf nodes: ' + str(len(taxa_labels_curr_tree)))
+      fp.write('\n Tree no : ' + str(tr_idx+1) +  'no of leaf nodes: ' + str(len(taxa_labels_curr_tree)))
     if (DEBUG_LEVEL > 2):
       fp.write('\n taxa set belonging to current tree: ' + str(taxa_labels_curr_tree))
     for i in range(len(taxa_labels_curr_tree)):
       if taxa_labels_curr_tree[i] not in COMPLETE_INPUT_TAXA_LIST:
 	COMPLETE_INPUT_TAXA_LIST.append(taxa_labels_curr_tree[i])
   
-  # we also define one structure "Taxa_Info_Dict" marked by a taxa
+  number_of_taxa = len(COMPLETE_INPUT_TAXA_LIST)
+  
+  """ 
+  we also define one structure "Taxa_Info_Dict" marked by a taxa
+  individual taxon information is entered in this dictionary
+  """
   for label in COMPLETE_INPUT_TAXA_LIST:
     Taxa_Info_Dict.setdefault(label, Single_Taxa())
   
-  # now process individual trees to find the couplet relations of those trees
+  #---------------------------
+  """
+  if variable weight of individual relation frequency is considered
+  then we process MRCA nodes of individual couplets
+  """
+  if (WEIGHT_TAXA_SUBSET == True):
+    for tr_idx in range(len(Input_Treelist)):
+      FindCoupletUnderlyingTaxon(Input_Treelist[tr_idx])
+  #---------------------------
+  """ 
+  now process individual trees to find the couplet relations of those trees
+  """
   for tr_idx in range(len(Input_Treelist)):
-    DeriveCoupletRelations(Input_Treelist[tr_idx], tr_idx)
-   
-  number_of_taxa = len(COMPLETE_INPUT_TAXA_LIST)
-    
+    DeriveCoupletRelations(Input_Treelist[tr_idx], tr_idx, WEIGHT_TAXA_SUBSET)
+ 
+  # printing couplet information
   if (DEBUG_LEVEL >= 0):
     fp.write('\n  total no of taxa: ' + str(number_of_taxa))
   if (DEBUG_LEVEL > 1):
@@ -232,35 +245,34 @@ def main():
     fp.write('\n len COMPLETE_INPUT_TAXA_LIST: ' + str(COMPLETE_INPUT_TAXA_LIST))
     fp.write('\n len TaxaPair_Reln_Dict : ' + str(len(TaxaPair_Reln_Dict)))
   
+  # close the output text file
   fp.close()
   
-  # we print the original connection status for all the tree nodes
-  if (DEBUG_LEVEL > 2):
-    for l in TaxaPair_Reln_Dict:
-      #print 'printing info for the TaxaPair_Reln_Dict key: ', l
-      TaxaPair_Reln_Dict[l]._PrintRelnInfo(l, Output_Text_File)
-  
   #------------------------------------------------------------
-  """ this section contains the code to estimate the supertree 
-  from the input source tree list information """
-  
-  ''' we also calculate the connection value between each pair of nodes in the output tree
-  the value defines the majority of the edge type that is between those 2 nodes '''
+  """ 
+  we also calculate the connection value between each pair of nodes in the output tree
+  the value defines the majority of the edge type that is between those 2 nodes 
+  """
   for l in TaxaPair_Reln_Dict:
-    # calculate the cost associated with each node pair connection for different edge types 
-    # detect if only one type of connection exists, during setting the priority values of 
-    # different edge connections
+    """
+    calculate the consensus and priority measures associated with each couplet for different relations
+    single_edge_exist means that the couplet is non-conflicting
+    only one type of relation exists between them in the input trees
+    in such a case, include only that relation in the priority queue
+    """
     single_edge_exist_list = TaxaPair_Reln_Dict[l]._SetConnPrVal(True)
     single_edge_exist = single_edge_exist_list[0]
     edge_type = single_edge_exist_list[1]
-
-    """ we calculate the cost metric value between individual pairs of taxa
-    previously the cost metric was equal to the priority metric
-    now we change it to make it a product of the frequency and the priority metrics """
+    """ 
+    we calculate the support score value between individual couplets and for each relations
+    previously the support score value was equal to the priority metric
+    now we change it to make it a product of the frequency and the priority measures 
+    """
     TaxaPair_Reln_Dict[l]._SetCostMetric(EMPLOY_BASIC_SCORING_COSPEDTREE)
   
     #------------------------------------------------------------
-    """ also update the cost value for individual elements in the list "Cost_List_Taxa_Pair_Multi_Reln or Cost_List_Taxa_Pair_Single_Reln"
+    """ also update the cost value for individual elements in the list 
+    "Cost_List_Taxa_Pair_Multi_Reln or Cost_List_Taxa_Pair_Single_Reln"
     each list element contains the following values:
     1) taxa1 and taxa2    
     3) edge type (one at a time - so there will be 4 entries for each node pair)
@@ -292,46 +304,17 @@ def main():
       else:
 	Cost_List_Taxa_Pair_Multi_Reln.append(sublist)
   
-  # note the timestamp
-  # this will signify the time required for tree reading and couplet feature extraction
-  data_read_timestamp = time.time()  
-  fp = open(Output_Text_File, 'a')
-  fp.write('\n \n\n ===============>>>>>>>>>>>>>>> TIME COMPLEXITY : reading the data: ' + \
-    str(data_read_timestamp - start_timestamp))
-  fp.close()
-  
-  #-------------------------------------  
-  # add - sourya
-  """ this section is used when user provides a custom unweighted supertree which just needs to be 
-  assigned branch length information """
-  if (TOPOLOGY_INPUT_TREE_FILENAME != ""):    
-    # read the custom tree topology from the specified input file
-    Final_Supertree = Read_Input_Tree(ROOTED_TREE, PRESERVE_UNDERSCORE, TOPOLOGY_FILE_FORMAT, TOPOLOGY_INPUT_TREE_FILENAME)    
-    suptr_taxa_labels = Final_Supertree.infer_taxa().labels()
-    Final_Supertree.retain_taxa_with_labels(suptr_taxa_labels, True, True)
-    fp = open(Output_Text_File, 'a')
-    fp.write('\n\n --- after deleteting the internal nodes with degree 1')
-    fp.write('\n\n ---output tree  without branch length information (in newick format): ' + Final_Supertree.as_newick_string())
-    fp.write('\n\n ---with branch length information - plotting : ')
-    fp.write(Final_Supertree.as_ascii_plot())
-    fp.close()
-
-    # this function assigns the branch length information on the generated supertree
-    AssignBranchLen(Final_Supertree, Input_Treelist, Output_Text_File, NO_OF_LOOPS, METHOD_OF_QP)
-    
-    out_treefilename = dir_of_curr_exec + '/' + 'RFS_QP_with_branch_length_newick.tre'
-    outfile = open(out_treefilename, 'w')
-    outfile.write(Final_Supertree.as_newick_string())
-    outfile.close()
-    return
-  # end add - sourya
-  
-  #------------------------------------------------------------
+  # we print the original connection status for all the tree nodes
   if (DEBUG_LEVEL > 2):
     for l in TaxaPair_Reln_Dict:
       #print 'printing info for the TaxaPair_Reln_Dict key: ', l
-      TaxaPair_Reln_Dict[l]._PrintRelnInfo(l, Output_Text_File)
+      TaxaPair_Reln_Dict[l]._PrintRelnInfo(l, Output_Text_File)  
+  
+  # note the timestamp
+  # this will signify the time required for tree reading and couplet feature extraction
+  data_read_timestamp = time.time()  
     
+  #------------------------------------------------------------    
   """ here we allocate the list of clusters
   initially all the clusters contain one taxa
   each of the cluster has the index of the corresponding taxa in the COMPLETE_INPUT_TAXA_LIST """
@@ -370,12 +353,22 @@ def main():
   if (NO_OF_QUEUES == 2):
     Sort_Cost_List_Initial(Cost_List_Taxa_Pair_Single_Reln)
   
-  data_initialize_timestamp = time.time()	# note the timestamp
+  # note the timestamp  
+  data_initialize_timestamp = time.time()
   
-  fp = open(Output_Text_File, 'a')
-  fp.write('\n \n\n ===============>>>>>>>>>>>>>>> TIME COMPLEXITY : initialization of the structure: ' + \
-    str(data_initialize_timestamp - data_read_timestamp))
-  fp.close()
+  #------------------------------------------------------------
+  # print the queue storing the scores of individual relations
+  if (DEBUG_LEVEL > 2):
+    if (NO_OF_QUEUES == 2):
+      fp = open(Output_Text_File, 'a')
+      fp.write('\n printing contents for the non-conflicting queue (couplet relation score)')
+      fp.close()
+      PrintQueueInfo(Cost_List_Taxa_Pair_Single_Reln, Output_Text_File)
+      
+    fp = open(Output_Text_File, 'a')
+    fp.write('\n printing contents for the conflicting queue (couplet relation score)')
+    fp.close()
+    PrintQueueInfo(Cost_List_Taxa_Pair_Multi_Reln, Output_Text_File)
   
   #------------------------------------------------------------
   """ if we have stored taxa pairs depicting single relation instance 
@@ -404,12 +397,7 @@ def main():
       Cluster_Info_Dict[i]._PrintClusterInfo(i, Output_Text_File)
   
   # note the timestamp
-  couplet_procssing_timestamp = time.time()  
-  
-  fp = open(Output_Text_File, 'a')
-  fp.write('\n \n\n ===============>>>>>>>>>>>>>>> TIME COMPLEXITY -- processing couplet feature queues: ' + \
-    str(couplet_procssing_timestamp - data_initialize_timestamp))
-  fp.close()  
+  couplet_procssing_timestamp = time.time()    
   #------------------------------------------------------------
   """ now perform the transitive reduction of the closure formed by connection of the cluster of nodes in the above operation
   this is required to handle the following scenario:
@@ -437,11 +425,12 @@ def main():
     for i in Cluster_Info_Dict:
       #print 'printing the information for cluster node: ', i
       Cluster_Info_Dict[i]._PrintClusterInfo(i, Output_Text_File)
-      
   #----------------------------------------------
-  ''' now this section constructs the supertree from the generated DAG 
+  """
+  now this section constructs the supertree from the generated DAG 
   this is performed by repeatedly extracting the nodes with minimum indegree
-  basically we first form a string which represents the supertree '''
+  basically we first form a string which represents the supertree 
+  """
   no_of_components = 0	# for forest
   while (1):
     root_clust_node_idx = Extract_Node_Min_Indeg(len(CURRENT_CLUST_IDX_LIST))
@@ -457,27 +446,19 @@ def main():
   # with the final tree string, finally generate the tree result 
   Final_Supertree_Str = '(' + Final_Supertree_Str + ')'
 
-  #--------------------------------------------------------------
+  fp = open(Output_Text_File, 'a')
+  fp.write('\n --- original supertree as newick string --- ' + Final_Supertree_Str) 
+  
   Final_Supertree_Str = Remove_Extra_Paranthesis(Final_Supertree_Str)  
   
-  # read the supertree (without branch length information)
-  Final_Supertree = dendropy.Tree.get_from_string(Final_Supertree_Str, schema="newick", \
-						  preserve_underscores=PRESERVE_UNDERSCORE, \
-						  default_as_rooted=True)
-  
-  # add - sourya
-  fp = open(Output_Text_File, 'a')
-  fp.write('\n --- output tree without branch length information (in newick format): ' + Final_Supertree.as_newick_string())
-  Final_Supertree.update_splits(delete_outdegree_one=True)
-  fp.write('\n --- after update splits -- supertree : ' + Final_Supertree.as_newick_string())
+  fp.write('\n --- after removing extra paranthesis -- supertree as newick string --- ' + Final_Supertree_Str) 
   fp.close()
-  # end add - sourya
   
+  # read the supertree (without branch length information)
+  Final_Supertree = dendropy.Tree.get_from_string(Final_Supertree_Str, schema="newick")	#, preserve_underscores=PRESERVE_UNDERSCORE, default_as_rooted=True)
+    
   # add - sourya  
   if (BINARY_SUPERTREE_OPTION == True):
-    fp = open(Output_Text_File, 'a')
-    fp.write('\n --- user provided option for producing strict binary supertree')
-    fp.close()
     # this function removes all multifurcating clusters and produces binary tree (except problem C3)
     Refine_Supertree_Binary_Form(Final_Supertree, Output_Text_File)
     fp = open(Output_Text_File, 'a')
@@ -490,37 +471,32 @@ def main():
       
   # final timestamp
   Multiple_parent_solution_timestamp = time.time()    
-  
-  fp = open(Output_Text_File, 'a')
-  fp.write('\n \n\n ===============>>>>>>>>>>>>>>> TIME COMPLEXITY -- multiple parent (related) problem: ' + \
-    str(Multiple_parent_solution_timestamp - couplet_procssing_timestamp))
-  fp.close()
-    
   #-------------------------------------------------------------
   # this function assigns the branch length information on the copied tree
-  AssignBranchLen(Final_Supertree, Input_Treelist, Output_Text_File, NO_OF_LOOPS, METHOD_OF_QP)
+  AssignBranchLen(Final_Supertree, Input_Treelist, Output_Text_File, NO_OF_LOOPS, METHOD_OF_QP, QP_EXEC_PATH)
   
   # note the timestamp for counting the time elapsed in adjusting the branch length
   branch_len_timestamp = time.time() 
   #-------------------------------------------------------------
       
   # write this tree on a separate text file
-  out_treefilename = dir_of_curr_exec + '/' + 'COSPEDBL_GLS_outtree_Newick.tre'
-  # standard library function
-  Write_Output_Tree(Final_Supertree, out_treefilename, 'newick')
-  ##outfile.write('\n \n final tree \n \n')
-  ##outfile.write(Final_Supertree.as_ascii_plot())
-  #outfile.close()
-
+  out_treefilename = dir_of_curr_exec + '/' + 'COSPEDBL_GLS_outtree_Newick.tre'  
+  Final_Supertree.write_to_path(out_treefilename, 'newick')
+  
   fp = open(Output_Text_File, 'a')
   fp.write('\n\n ---output tree with branch length information (in newick format): ' + Final_Supertree.as_newick_string())
-  #fp.write('\n\n ---output tree  with branch length information - plotting ')
-  #fp.write(Final_Supertree.as_ascii_plot(plot_metric='length', show_internal_node_labels=True))
-  #fp.write(Final_Supertree.as_ascii_plot())
   fp.close()
   
   fp = open(Output_Text_File, 'a')
-  fp.write('\n \n\n ===============>>>>>>>>>>>>>>> TIME COMPLEXITY OF THE METHOD (in seconds) - adjusting branch length of the tree: ' + \
+  fp.write('\n \n\n ===============>>>>>>>>>>>>>>> TIME COMPLEXITY OF THE METHOD (in seconds)')
+  
+  fp.write('\n \n reading the data: ' + str(data_read_timestamp - start_timestamp) + \
+	'\n initialization of the structure: ' + str(data_initialize_timestamp - data_read_timestamp) + \
+	'\n processing all couplets and support scores: ' + \
+	      str(couplet_procssing_timestamp - data_initialize_timestamp) + \
+	'\n multiple parent problem + binary tree: ' + \
+	      str(Multiple_parent_solution_timestamp - couplet_procssing_timestamp) + \
+	    '\n adjusting branch length of the tree: ' + \
 	      str(branch_len_timestamp - Multiple_parent_solution_timestamp))
   fp.write('\n \n Total time taken (in seconds) : ' + str(branch_len_timestamp - start_timestamp))
   fp.close()

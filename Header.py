@@ -1,43 +1,25 @@
 #!/usr/bin/env python
 
 import dendropy
-from dendropy import TreeList, Tree, Taxon, TaxonSet
+from dendropy import TreeList, Tree, Taxon, TaxonSet, Node
 import itertools
 import numpy
-#from numpy import *
-#from numpy import newaxis
 import time
 import os
-#import re
 import sys
 from cStringIO import StringIO
-#from operator import itemgetter
 from optparse import OptionParser
-#from collections import deque
 import math
-#from math import *
 import scipy
 from scipy import optimize 
 from scipy.optimize import minimize
 
-# here we add the custom python library functions 
-sys.path.insert(0, '../../../../Phylogenetic_Library_Codes/')
-import supertree_perf_metric
-from supertree_perf_metric import *
-import Input_Output
-from Input_Output import *
-import utilities
-from utilities import *
-
-# this is the path of QP executable based on GNU C library
-QP_Executable = '/home/sourya/SOURYA_ALL/PhD_Codes/GSP/Supertree_with_branch_length/SOURCE_CODES/Code_Cluster_Based/src_code/GNU_BFGS2'
-
 # we define custom edge types
-BI_DIRECTED_EDGE = 0	# equality relationship
-DIRECTED_OUT_EDGE = 1
-DIRECTED_IN_EDGE = 2
-NO_EDGE = 3	# no relationship
-UNDEFINED_EDGE = 4
+RELATION_R3 = 0	# equality relationship
+RELATION_R1 = 1
+RELATION_R2 = 2
+RELATION_R4 = 3	# no relationship
+UNDEFINED_RELATION = 4
 
 """ this is a dictionary storing cluster of nodes 
 each cluster is basically a collection of nodes having equality relationship between the nodes """
@@ -60,13 +42,6 @@ Cost_List_Taxa_Pair_Multi_Reln = []
 where a pair of taxa is connected only by a single relation type  (with respect to all the candidate source trees)
 cost corresponding to that single relation instance is accounted  '''
 Cost_List_Taxa_Pair_Single_Reln = [] 
-
-''' this list contains the transitive relationships 
-which are established either by original edge connection
-or by derived edge connection due to the earlier edge connections
-all such edges are maintained in this list
-finally, this list is used to update the cost of the remaining non processed edges '''
-EDGE_PROCESSED_LIST = []
 
 """ this list contains the complete set of taxa present in the input source trees """
 COMPLETE_INPUT_TAXA_LIST = []
@@ -179,6 +154,23 @@ class Reln_TaxaPair(object):
     self.dist_node1_mrca_global_mean = 0
     self.dist_node2_mrca_global_mean = 0
         
+    # this list maintains the consensus relations for this couplet
+    # with respect to the input trees
+    self.consensus_reln_list = []
+        
+    # this list contains the union of taxa list underlying the LCA of this couplet
+    # for individual input trees
+    self.LCA_Underlying_Taxa_List = []
+
+  def _AppendUnderlyingTaxonList(self, inp_list):
+    self.LCA_Underlying_Taxa_List = list(set(self.LCA_Underlying_Taxa_List) | set(inp_list))
+
+  def _GetUnderlyingTaxonList(self):
+    return self.LCA_Underlying_Taxa_List
+        
+  def _GetConsensusRelnList(self):
+    return self.consensus_reln_list
+        
   #---------------------------------------------------
   def _AddLineage(self, val):
     self.xl_sum_all_trees = self.xl_sum_all_trees + val
@@ -231,9 +223,9 @@ class Reln_TaxaPair(object):
     #self.Connect_Edge_Cost[edge_type] = self.Connect_Edge_Cost[edge_type] + incr_cost
 
   # this function adds one edge count (with a given input edge type)
-  def _Add_Edge_Count_And_Distance(self, edge_type, node1_dist_from_mrca_node, node2_dist_from_mrca_node):
+  def _Add_Edge_Count_And_Distance(self, edge_type, node1_dist_from_mrca_node, node2_dist_from_mrca_node, val=1):
     # increment the frequency of particular relation type between this taxa pair
-    self.edge_weight[edge_type] = self.edge_weight[edge_type] + 1
+    self.edge_weight[edge_type] = self.edge_weight[edge_type] + val
     # add the relative branch length timings (with respect to MRCA)
     self._AddDistMatValue(node1_dist_from_mrca_node + node2_dist_from_mrca_node)
     # add respective branch lengths leading to individual taxon
@@ -291,31 +283,43 @@ class Reln_TaxaPair(object):
   def _GetConnPrVal(self, edge_type):
     return self.conn_pr_val[edge_type]
       
-  ''' this function calculates connection priority value for each of the edge types, 
-  for this particular connection between a pair of nodes in the final tree '''
+  """ 
+  this function calculates connection priority value for each of the edge types, 
+  for this particular connection between a pair of nodes in the final tree 
+  """
   def _SetConnPrVal(self, single_edge_prior):
+    # find the consensus relations 
+    maxval = max(self.edge_weight)
+    for i in range(4):
+      if (self.edge_weight[i] == maxval):
+	self.consensus_reln_list.append(i) 
+    
     # this is the sum of all the edge type instances (no of occurrences)
     listsum = sum(self.edge_weight)
     # now determine the connection priority of a particular edge type with respect to other edges     
     for edge_type in range(4):
       # here we use the difference of current edge type frequency with the frequencies of all other edge types 
-      self.conn_pr_val[edge_type] = 2 * self.edge_weight[edge_type] - listsum
-    ''' this code section is used when there exists NO EDGE relationship between a pair of taxa
-    and we want to detect it '''
+      #self.conn_pr_val[edge_type] = 2 * self.edge_weight[edge_type] - listsum
+      self.conn_pr_val[edge_type] = ((self.edge_weight[edge_type] * 1.0) / listsum)
+    
+    """ 
+    this code section is used when there exists NO EDGE relationship between a pair of taxa
+    and we want to detect it 
+    """
     if (not single_edge_prior):
-      """ if there is no vote for any particular edge type other than NO_EDGE,
+      """ if there is no vote for any particular edge type other than RELATION_R4,
       (that is, corresponding settings did not occur in any of the source tree)
-      then we make only the NO_EDGE settings as valid - 
+      then we make only the RELATION_R4 settings as valid - 
       they will only be considered for joining this pair in the final tree """
-      if (self.edge_weight[NO_EDGE] != 0)\
-	and (self.edge_weight[DIRECTED_IN_EDGE] == 0)\
-	and (self.edge_weight[DIRECTED_OUT_EDGE] == 0)\
-	and (self.edge_weight[BI_DIRECTED_EDGE] == 0):
+      if (self.edge_weight[RELATION_R4] != 0)\
+	and (self.edge_weight[RELATION_R2] == 0)\
+	and (self.edge_weight[RELATION_R1] == 0)\
+	and (self.edge_weight[RELATION_R3] == 0):
 	return 1
       else:
 	return 0
     else:
-      outlist = [0, NO_EDGE]
+      outlist = [0, RELATION_R4]
       for edge_type in range(4):
 	if (self.edge_weight[edge_type] == listsum) and (listsum > 0):
 	  outlist = [1, edge_type]

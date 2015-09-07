@@ -13,13 +13,18 @@ from UtilFunc import *
 #----------------------------------------------------
 # new functions used for QP based branch length assignment of the unweighted supertree
 #----------------------------------------------------
-# this function initializes EdgeInfoDict structure 
+"""
+this function initializes EdgeInfoDict structure 
+where individual edges of the final supertree are used as keys
+"""
 def Initialize_Edge_Dict(Inp_Tree, Output_Text_File):
   idx = 0
   for e in Inp_Tree.postorder_edge_iter():
-    # key of the dictionary corresponding to individual edges in the unweighted supertree
-    # tail node signifies the parent node from which the edge starts
-    # head node signifies the parent node to which the edge ends
+    """
+    key of edge dictionary : individual edges, represented as a pair (tail node, head node)
+    tail node signifies the parent node from which the edge starts
+    head node signifies the parent node to which the edge ends
+    """
     key = (e.tail_node, e.head_node)
     EdgeInfoDict.setdefault(key, idx)
     idx = idx + 1
@@ -31,6 +36,10 @@ def Initialize_Edge_Dict(Inp_Tree, Output_Text_File):
     fp.close()
 
 #----------------------------------------------------
+"""
+this function scans input trees
+and assigns weights for individual trees according to their constituent taxon set 
+"""
 def AssignMatrixWeights(Source_Treelist):
   global Matrix_Weight_Val
   
@@ -55,19 +64,30 @@ def AssignMatrixWeights(Source_Treelist):
 	  # supporting taxa count - sourya
 	  supp_taxa_count = supp_taxa_count + 2	#1
 	  break
+    
+    # supporting taxa count related weight
+    supp_taxa_related_tree_weight = (1.0 / supp_taxa_count)
+   
     # now adjust the matrix weight value of the current location
-    Matrix_Weight_Val.append(1.0 / supp_taxa_count)
+    Matrix_Weight_Val.append(supp_taxa_related_tree_weight)
 
 #----------------------------------------------------
+"""
+for executing QP solver, this function creates a batch file storing the required command 
+in terms of an objective function
+"""
 def WriteObjectiveFunctionFile(Out_Text_GLS_input_file):
   fp_txt = open(Out_Text_GLS_input_file, 'w')
   
   # first write the number of variables (unknowns) of QP
   fp_txt.write(str(len(EdgeInfoDict)))
-  # now for each row of the text file
-  # first write the number of branches for each taxa pair distance
-  # then mention those branches
-  # and finally mention the distance matrix entry
+
+  """
+  now for each row of the text file
+  first write the number of branches for each taxa pair distance
+  then mention those branches
+  and finally mention the distance matrix entry
+  """
   for taxapair_key in TaxaPair_Reln_Dict:
     br_len_list = TaxaPair_Reln_Dict[taxapair_key]._GetBranchArrayIdxList()
     fp_txt.write('\n' + str(len(br_len_list)))
@@ -77,6 +97,8 @@ def WriteObjectiveFunctionFile(Out_Text_GLS_input_file):
     fp_txt.write('\t' + str(AvgDistMatVal))
   
   fp_txt.close()
+  
+  return
   
 #----------------------------------------------------
 def Form_ObjectiveFunction():
@@ -180,10 +202,16 @@ def Initialize_TaxaPairBranches(Inp_Tree):
 
 # end comment - sourya
 #----------------------------------------------------
-""" this function takes inputs of leaf nodes and their MRCA node
-and assigns their constituent branches with respect to the supertree
-to their couplet information class instance """
+""" 
+this function takes inputs of two leaf nodes and their MRCA node
+branches between the couplet, with respect to their MRCA node in the derived supertree 
+are assigned to their class instance
+"""
 def AddBranchInfo(node1, node2, mrca_node):
+  """ 
+  if key exists in the taxa pair information
+  then assign branch information
+  """
   key1 = (node1.taxon.label, node2.taxon.label)
   key2 = (node2.taxon.label, node1.taxon.label)
   if (key1 in TaxaPair_Reln_Dict):
@@ -193,9 +221,6 @@ def AddBranchInfo(node1, node2, mrca_node):
   else:
     return
   
-  # if key exists in the taxa pair information
-  # then assign branch information
-  
   # add branch length from the first taxa (leaf node) to the MRCA node
   curr_node = node1
   parent_node = curr_node.parent_node
@@ -204,7 +229,7 @@ def AddBranchInfo(node1, node2, mrca_node):
     # key follows the rule from tail node to head node
     key = (parent_node, curr_node)
     TaxaPair_Reln_Dict[tk]._AddBranchArrayIdx(EdgeInfoDict[key])
-    if (DEBUG_LEVEL >= 2):
+    if (DEBUG_LEVEL > 2):
       print 'node: ', curr_node, 'parent node: ', parent_node
       print 'MRCA - added br idx: ', EdgeInfoDict[key]
     curr_node = parent_node
@@ -218,21 +243,22 @@ def AddBranchInfo(node1, node2, mrca_node):
     # key follows the rule from tail node to head node
     key = (parent_node, curr_node)
     TaxaPair_Reln_Dict[tk]._AddBranchArrayIdx(EdgeInfoDict[key])
-    if (DEBUG_LEVEL >= 2):
+    if (DEBUG_LEVEL > 2):
       print 'node: ', curr_node, 'parent node: ', parent_node
       print 'MRCA - added br idx: ', EdgeInfoDict[key]
     curr_node = parent_node
     parent_node = parent_node.parent_node
   
-  if (DEBUG_LEVEL >= 2):    
+  if (DEBUG_LEVEL > 2):    
     print 'curr TaxaPair_Reln_Dict key: ', tk, 'branch idx list: ', TaxaPair_Reln_Dict[tk]._GetBranchArrayIdxList()
   
   return
 
 #----------------------------------------------------
-# add - sourya
-""" for individual couplets, this function assigns the branches between them
-with respect to the output supertree (currently unweighted) """
+""" 
+for individual couplets, this function assigns the branches between them
+with respect to the output supertree (currently unweighted) 
+"""
 def Initialize_TaxaPairBranches(Inp_Tree):
   # traverse the internal nodes of the tree in postorder fashion
   for curr_node in Inp_Tree.postorder_internal_node_iter():
@@ -267,41 +293,48 @@ def Initialize_TaxaPairBranches(Inp_Tree):
 	    for q in curr_node_child_internal_nodes[j].leaf_nodes():
 	      AddBranchInfo(p, q, curr_node)
 
-
-# end add - sourya
 #----------------------------------------------------
 # this function assigns branch length information on the Inp_Tree     
-def AssignBranchLen(Inp_Tree, Source_Treelist, Output_Text_File, NO_OF_LOOPS, METHOD_OF_QP):
-  # this is the objective function represented as a string format
-  # that need to be passed in QP optimization function
+def AssignBranchLen(Inp_Tree, Source_Treelist, Output_Text_File, NO_OF_LOOPS, METHOD_OF_QP, QP_Executable):
+  """
+  this is the objective function represented as a string format
+  that need to be passed in QP optimization function
+  """
   global objective_function_string  
+
+  """
+  this is the weight matrix of input phylogenetic trees
+  """
+  global Matrix_Weight_Val
   
-  # function to assign individual edges of the derived unweighted supertree
-  # into a dictionary, so that its values and attributes can be easily accessed and modified
-  init_edgedict_start_timestamp = time.time()
+  # we note the timing for branch length assignment
+  start_timestamp = time.time()
+
+  """
+  function to assign individual edges of the derived unweighted supertree
+  into a dictionary, 
+  so that its values and attributes can be easily accessed and modified
+  """
   Initialize_Edge_Dict(Inp_Tree, Output_Text_File)
-  init_edgedict_end_timestamp = time.time()
-  fp = open(Output_Text_File, 'a')
-  fp.write('\n Init Edge dict -- time required : '+ str(init_edgedict_end_timestamp - init_edgedict_start_timestamp))
-  fp.close()
   
-  init_taxa_pair_start_timestamp = time.time()
+  """
+  here we process individual couplets of the output supertree
+  and assign the branch indices within them 
+  """
   Initialize_TaxaPairBranches(Inp_Tree)
-  init_taxa_pair_end_timestamp = time.time()
-  fp = open(Output_Text_File, 'a')
-  fp.write('\n Init Taxa pair branches -- time required : '+ str(init_taxa_pair_end_timestamp - init_taxa_pair_start_timestamp))
-  fp.close()
   
-  init_matr_wt_start_timestamp = time.time()
+  """
+  assign weights of individual phylogenetic trees
+  """
   AssignMatrixWeights(Source_Treelist)
-  init_matr_wt_end_timestamp = time.time()
-  fp = open(Output_Text_File, 'a')
-  fp.write('\n Init matrix weight branches -- time required : '+ str(init_matr_wt_end_timestamp - init_matr_wt_start_timestamp))
-  fp.close()
   
-  
-  branch_len_qp_start_timestamp = time.time()
-  
+  fp1 = open(Output_Text_File, 'a')
+  for i in range(len(Matrix_Weight_Val)):
+    fp1.write('\n Input tree index: ' + str(i) + ' tree weight: ' + str(Matrix_Weight_Val[i]) + \
+      '  no of support taxa: ' + str(1.0 / Matrix_Weight_Val[i]) + \
+      '  no of input taxa: ' + str(len(Source_Treelist[i].infer_taxa())))
+  fp1.close()
+
   if (METHOD_OF_QP == 1) or (METHOD_OF_QP == 2):
     # these are the variables for optimization constraints
     # len(EdgeInfoDict) variables are terfor the branch length values
@@ -401,9 +434,9 @@ def AssignBranchLen(Inp_Tree, Source_Treelist, Output_Text_File, NO_OF_LOOPS, ME
   ##------------------------------------------
   print '*** end of branch length assignment ***'
   
-  branch_len_qp_end_timestamp = time.time()
+  end_timestamp = time.time()
   fp = open(Output_Text_File, 'a')
-  fp.write('\n Branch length assignment -- time required : '+ str(branch_len_qp_end_timestamp - branch_len_qp_start_timestamp))
+  fp.write('\n Branch length assignment -- total time required : '+ str(end_timestamp - start_timestamp))
   fp.close()
   
   return
