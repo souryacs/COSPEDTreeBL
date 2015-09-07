@@ -154,17 +154,6 @@ Details of the options are mentioned below:
                     1 - input file (containing the input treelist) format is NEWICK (default)                         
                     2 - input file format is NEXUS
 
--T CUSTOM_SUPERTREE_FILE, --topology=CUSTOM_SUPERTREE_FILE
-
-                    File containing custom unweighted supertree topology, such as RFS.			  
-                    The supertree is built using the input trees (provided with -I option above)
-
--t TOPOLOGY_FILE_FORMAT, --topform=TOPOLOGY_FILE_FORMAT
-
-                    The value can be either 1 or 2.
-                    1 - supertree topology (provided using the -T option) is a NEWICK (default) formatted file                       
-                    2 - file format of the supertree topology file is NEXUS
-
 -s, --basicscore   (boolean option)
 
                     If TRUE, support scores of individual couplets follow the rule employed in basic COSPEDTree approach.
@@ -196,6 +185,17 @@ Details of the options are mentioned below:
                   generally more iterations yield better optimization \
                   default number of iterations is 15.
 
+-Q QP_Exec_Path, --QPExec QP_Exec_Path
+			  
+                This is the absolute / relative path of the executable for QP solver (here GNU_BFGS2) which user needs to provide
+
+-w, --weighttaxa  (boolean option)
+			                
+                Using this option toggles the existing configuration (Default TRUE) \
+                if TRUE, then this option assigns different weights to individual couplet relations and corresponding frequencies. 
+                The weights are computed according to the size of taxa subset underlying MRCA of that couplet (for corresponding input tree).
+
+--------------------------------------------------------------------------------------------------
 Example of a command 
 (followed for the results published in the manuscript)
 --------------------------------------------------------------------------------------------------
